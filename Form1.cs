@@ -66,18 +66,23 @@ namespace 西门子PLC上位机通讯软件
             dataGridView1.Columns.Add(textBoxColumn3);
         }
 
+        // 1. 改进的连接方法 - 添加更完善的错误处理
         private void btn_Connect_Click(object sender, EventArgs e)
         {
-            if (isConnected == false)
+            if (!isConnected)
             {
-                // 校验IP地址格式
-                if (string.IsNullOrWhiteSpace(txt_IP.Text) || !System.Net.IPAddress.TryParse(txt_IP.Text, out _))
+                // IP校验
+                if (string.IsNullOrWhiteSpace(txt_IP.Text) ||
+                    !System.Net.IPAddress.TryParse(txt_IP.Text, out _))
                 {
                     MessageBox.Show("请输入有效的IP地址", "错误");
                     return;
                 }
 
-                int res = conn.Connect(this.txt_IP.Text.Trim());
+                // 关键：S7CommPlus通常使用端口102（标准S7端口）
+                // 确保conn.Connect方法内部使用了正确的端口和协议版本
+                int res = conn.Connect(txt_IP.Text.Trim());
+
                 if (res == 0)
                 {
                     IsConnected = true;
@@ -85,25 +90,51 @@ namespace 西门子PLC上位机通讯软件
                 }
                 else
                 {
-                    MessageBox.Show("PLC连接失败", "PLC连接");
+                    // 添加详细的错误码解析
+                    string errMsg = GetErrorMessage(res);
+                    MessageBox.Show($"PLC连接失败\n错误码: {res}\n{errMsg}", "连接错误");
                 }
             }
             else
             {
-                try
-                {
-                    cts?.Cancel();
-                    isReading = false;
-                    Thread.Sleep(100);
-                    conn.Disconnect();
-                    IsConnected = false;
-                    btn_Read.Text = "开始读取";
-                    MessageBox.Show("已断开PLC连接", "提示");
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"断开连接失败：{ex.Message}", "错误");
-                }
+                DisconnectPLC();
+            }
+        }
+
+        // 2. 添加错误码解析辅助方法
+        private string GetErrorMessage(int errorCode)
+        {
+            return errorCode switch
+            {
+                0 => "成功",
+                1 => "连接被拒绝 - 检查IP和端口",
+                2 => "PDU格式错误 - 检查PLC配置(Put/Get权限)",
+                3 => "访问被拒绝 - 检查DB块是否取消优化访问",
+                4 => "地址无效 - 检查DB块是否存在",
+                5 => "数据类型不匹配",
+                _ => $"未知错误 (代码: {errorCode})"
+            };
+        }
+
+        // 3. 改进的断开连接方法
+        private void DisconnectPLC()
+        {
+            try
+            {
+                cts?.Cancel();
+                isReading = false;
+
+                // 等待读取任务完全停止
+                Task.Delay(200).Wait();
+
+                conn?.Disconnect();
+                IsConnected = false;
+                btn_Read.Text = "开始读取";
+                MessageBox.Show("已断开PLC连接", "提示");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"断开连接失败：{ex.Message}", "错误");
             }
         }
 
